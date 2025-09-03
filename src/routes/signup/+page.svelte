@@ -14,11 +14,11 @@
     errorMessage = "";
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      console.log("✅ Signed up:", userCredential.user);
+      console.log("Signed up:", userCredential.user);
       goto("/login"); // redirect after signup
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("❌ Signup error:", error);
+      console.error("Signup error:", error);
     }
   }
 
@@ -27,11 +27,11 @@
     errorMessage = "";
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      console.log("✅ Google signup:", result.user);
+      console.log("Google signup:", result.user);
       goto("/dashboard");
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("❌ Google signup error:", error);
+      console.error("Google signup error:", error);
     }
   }
 </script>

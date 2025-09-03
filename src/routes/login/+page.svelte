@@ -1,40 +1,58 @@
-<!-- Login.svelte -->
-
 <script lang="ts">
   import { auth } from "$lib/firebase";
-  import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+  import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from "firebase/auth";
   import { goto } from "$app/navigation";
 
   let email = "";
   let password = "";
   let errorMessage = "";
+  let successMessage = "";
 
   // Email + Password Login
   async function handleLogin(e: Event) {
     e.preventDefault();
     errorMessage = "";
+    successMessage = "";
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log("✅ Logged in:", userCredential.user);
+      console.log("Logged in:", userCredential.user);
       goto("/dashboard"); // redirect after login
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("❌ Login error:", error);
+      console.error("Login error:", error);
     }
   }
 
   // Google Login
   async function handleGoogleLogin() {
     errorMessage = "";
+    successMessage = "";
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      console.log("✅ Google Logged in:", result.user);
+      console.log("Google Logged in:", result.user);
       goto("/dashboard"); // redirect after Google login
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("❌ Google login error:", error);
+      console.error("Google login error:", error);
+    }
+  }
+
+  // Forgot Password
+  async function handleForgotPassword() {
+    errorMessage = "";
+    successMessage = "";
+    if (!email) {
+      errorMessage = "Please enter your email first";
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      successMessage = "Password reset email sent! Check your inbox.";
+    } catch (error: any) {
+      errorMessage = error.message;
     }
   }
 </script>
@@ -98,9 +116,20 @@
       Login with Google
     </button>
 
-    <!-- Error Message -->
+    <!-- Forgot Password -->
+    <button
+      on:click={handleForgotPassword}
+      class="mt-2 text-sm text-blue-600 hover:underline"
+    >
+      Forgot Password?
+    </button>
+
+    <!-- Error & Success Messages -->
     {#if errorMessage}
       <p class="mt-4 text-red-500 text-sm">{errorMessage}</p>
+    {/if}
+    {#if successMessage}
+      <p class="mt-4 text-green-500 text-sm">{successMessage}</p>
     {/if}
 
     <!-- Signup Link -->

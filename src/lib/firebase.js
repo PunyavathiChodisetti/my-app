@@ -1,7 +1,9 @@
 // src/lib/firebase.ts
-import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
+// 🔴 keep your own config values here
 const firebaseConfig = {
   apiKey: "AIzaSyDkgiHlduRhNSLOq2TXmB8XwqeY7zBrptA",
   authDomain: "pokedex-a2bd7.firebaseapp.com",
@@ -11,9 +13,8 @@ const firebaseConfig = {
   appId: "1:264243209467:web:04f9816a31d15e9706bc5e",
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Avoid duplicate app during HMR
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// Export Firebase Auth and Google Provider
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
+export const db = getFirestore(app);
