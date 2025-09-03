@@ -1,18 +1,73 @@
 <script lang="ts">
   import { auth, db } from "$lib/firebase";
-  import { signOut, updateProfile, onAuthStateChanged } from "firebase/auth";
-  import { doc, setDoc, getDoc } from "firebase/firestore";
+  import { signOut, updateProfile } from "firebase/auth";
+  import { doc, getDoc, setDoc } from "firebase/firestore";
   import { goto } from "$app/navigation";
   import { onMount, onDestroy } from "svelte";
 
+  // --- User/Profile state ---
   let userName = "User";
   let dropdownOpen = false;
   let profilePhoto: string | null = null;
+
+  // --- Pokémon state ---
+  let pokemons: any[] = [];
+  let searchTerm = "";
+  let selectedType: string | null = null;
+const pokemonTypes = [
+  "normal", "fire", "water", "electric", "grass", "ice",
+  "fighting", "poison", "ground", "flying", "psychic",
+  "bug", "rock", "ghost", "dragon", "dark", "steel", "fairy"
+];
   let loading = true;
+  let error: string | null = null;
+  let selectedPokemon: any = null;
+  let favorites: number[] = []; // store Pokémon IDs
 
-  let unsubscribeAuth: (() => void) | null = null;
+  // --- Navbar/Profile setup ---
+  async function loadUserProfile(user: any) {
+    if (!user) return;
+    userName = user.displayName || user.email?.split("@")[0] || "User";
 
-  // ---- helpers ----
+    try {
+      const userRef = doc(db, "users", user.uid);
+      const snap = await getDoc(userRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.profilePhoto) profilePhoto = data.profilePhoto;
+      } else if (user.photoURL) {
+        profilePhoto = user.photoURL;
+      }
+    } catch (err) {
+      console.error("Error loading user profile:", err);
+    }
+  }
+
+  onMount(() => {
+    const user = auth.currentUser;
+    if (user) loadUserProfile(user);
+
+    document.addEventListener("click", handleClickOutside);
+    fetchPokemons();
+  });
+
+  onDestroy(() => {
+    document.removeEventListener("click", handleClickOutside);
+  });
+
+  async function handleLogout() {
+    try {
+      await signOut(auth);
+      goto("/");
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  }
+
+  function toggleDropdown() {
+    dropdownOpen = !dropdownOpen;
+  }
+
   function handleClickOutside(event: MouseEvent) {
     const dropdown = document.getElementById("profile-dropdown");
     const button = document.getElementById("profile-button");
@@ -26,135 +81,102 @@
     }
   }
 
-  function toggleDropdown() {
-    dropdownOpen = !dropdownOpen;
-  }
-
-  async function handleLogout() {
-    try {
-      await signOut(auth);
-      goto("/");
-    } catch (error) {
-      console.error("Logout error:", error);
-    }
-  }
-
+  // Fallback first letter
   $: firstLetter = userName.charAt(0).toUpperCase();
 
-  // Resize & convert to base64 (keeps Firestore doc under 1MB)
-  function fileToBase64Resized(file: File, maxSize = 256): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = reject;
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-          const w = Math.round(img.width * scale);
-          const h = Math.round(img.height * scale);
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return reject(new Error("Canvas context not available"));
-          ctx.drawImage(img, 0, 0, w, h);
-          // JPEG ~80% to reduce size further
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-          resolve(dataUrl);
-        };
-        img.onerror = reject;
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // Upload handler: save in Firestore and update auth profile
+  // --- Profile Photo Upload ---
   async function onPhotoSelected(event: Event) {
     const input = event.target as HTMLInputElement;
-    if (!input.files || !input.files[0] || !auth.currentUser) return;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        profilePhoto = e.target?.result as string;
 
-    try {
-      const base64 = await fileToBase64Resized(input.files[0]);
-      profilePhoto = base64;
-
-      const uid = auth.currentUser.uid;
-      const docRef = doc(db, "users", uid);
-
-      // Merge so we don't overwrite other fields later
-      await setDoc(docRef, { photoURL: base64 }, { merge: true });
-
-      // Optional: also reflect in Firebase Auth profile
-      await updateProfile(auth.currentUser, { photoURL: base64 });
-
-      console.log("Profile photo saved to Firestore & Auth.");
-    } catch (err) {
-      console.error("Error saving profile photo:", err);
-      alert("Could not save profile photo. See console for details.");
+        const user = auth.currentUser;
+        if (user) {
+          try {
+            const userRef = doc(db, "users", user.uid);
+            await setDoc(userRef, { profilePhoto }, { merge: true });
+            await updateProfile(user, { photoURL: profilePhoto });
+          } catch (err) {
+            console.error("Error saving profile photo:", err);
+          }
+        }
+      };
+      reader.readAsDataURL(file);
     }
   }
 
-  // Listen for auth changes; fetch photo from Firestore when logged in
-  onMount(() => {
-    unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      loading = true;
-      try {
-        if (user) {
-          userName = user.displayName || user.email?.split("@")[0] || "User";
+  // --- Fetch Pokémon list ---
+  async function fetchPokemons() {
+    loading = true;
+    error = null;
+    try {
+      const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000");
+      if (!res.ok) throw new Error("Failed to fetch Pokémon list");
+      const data = await res.json();
 
-          // Get doc from Firestore
-          const docRef = doc(db, "users", user.uid);
-          const snap = await getDoc(docRef);
+      const detailed = await Promise.all(
+        data.results.map(async (p: any) => {
+          const r = await fetch(p.url);
+          return await r.json();
+        })
+      );
+      pokemons = detailed;
+    } catch (err: any) {
+      error = err.message;
+    } finally {
+      loading = false;
+    }
+  }
 
-          if (snap.exists() && snap.data()?.photoURL) {
-            profilePhoto = snap.data().photoURL as string;
-          } else if (user.photoURL) {
-            // fallback to auth profile if present
-            profilePhoto = user.photoURL;
-          } else {
-            profilePhoto = null;
-          }
-        } else {
-          // Not logged in
-          userName = "User";
-          profilePhoto = null;
-        }
-      } catch (err) {
-        console.error("Error loading profile from Firestore:", err);
-      } finally {
-        loading = false;
-      }
-    });
+  // --- Filter by search ---
+  $: filteredPokemons = pokemons.filter((p) => {
+  const matchesName = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+  const matchesType = selectedType
+    ? p.types.some((t: any) => t.type.name === selectedType)
+    : true;
+  return matchesName && matchesType;
+});
 
-    document.addEventListener("click", handleClickOutside);
-  });
 
-  onDestroy(() => {
-    if (unsubscribeAuth) unsubscribeAuth();
-    document.removeEventListener("click", handleClickOutside);
-  });
+  // --- Open detail modal ---
+  function openPokemonDetail(p: any) {
+    selectedPokemon = p;
+  }
+  function closePokemonDetail() {
+    selectedPokemon = null;
+  }
+
+  // --- Toggle favorites ---
+  function toggleFavorite(pokemonId: number) {
+    if (favorites.includes(pokemonId)) {
+      favorites = favorites.filter((id) => id !== pokemonId);
+    } else {
+      favorites = [...favorites, pokemonId];
+    }
+  }
 </script>
 
 <!-- Navbar -->
-<nav class="flex justify-between items-center px-6 py-3 absolute top-0 left-0 w-full bg-black bg-opacity-40 text-white z-50">
+<nav class="flex justify-between items-center px-6 py-3 fixed top-0 left-0 w-full bg-black bg-opacity-80 text-white z-50">
   <h1 class="font-bold text-xl">POKEDEX</h1>
 
   <div class="flex items-center space-x-4">
     <a href="#" class="hover:text-yellow-300">Pokemons</a>
-    <a href="#" class="hover:text-yellow-300">Favourites</a>
 
-    <!-- Profile button with icon or photo -->
+    <!-- Profile -->
     <div class="relative flex items-center space-x-2 cursor-pointer select-none">
       <button
         id="profile-button"
-        type="button"
-        class="flex items-center space-x-2 hover:text-yellow-300 focus:outline-none"
+        class="flex items-center space-x-2 hover:text-yellow-300"
         on:click={toggleDropdown}
       >
         {#if profilePhoto}
-          <img src={profilePhoto} alt="Profile Photo" class="w-8 h-8 rounded-full object-cover" />
+          <img src={profilePhoto} alt="Profile" class="w-8 h-8 rounded-full object-cover" />
         {:else}
-          <span class="bg-yellow-400 text-black font-bold rounded-full w-8 h-8 flex items-center justify-center text-lg">
+          <span class="bg-yellow-400 text-black font-bold rounded-full w-8 h-8 flex items-center justify-center">
             {firstLetter}
           </span>
         {/if}
@@ -164,50 +186,148 @@
       {#if dropdownOpen}
         <div
           id="profile-dropdown"
-          class="absolute right-0 mt-2 w-56 bg-black bg-opacity-90 rounded-md shadow-lg z-50 text-white max-h-96 overflow-auto"
+          class="absolute right-0 mt-2 w-64 bg-white text-black rounded-md shadow-lg z-50"
           style="top: 100%;"
         >
-          <!-- Username and Email -->
-          <div class="px-4 py-3 border-b border-yellow-300 flex flex-col items-start space-y-1">
-            <div class="flex items-center space-x-3 w-full">
-              {#if profilePhoto}
-                <img src={profilePhoto} alt="Profile Photo" class="w-10 h-10 rounded-full object-cover" />
-              {:else}
-                <span class="bg-yellow-400 text-black font-bold rounded-full w-10 h-10 flex items-center justify-center text-xl">
-                  {firstLetter}
-                </span>
-              {/if}
-              <div class="flex flex-col">
-                <span class="font-semibold">{userName}</span>
-                <span class="text-xs text-yellow-300 truncate max-w-[180px]">{auth.currentUser?.email}</span>
-              </div>
+          <!-- User info -->
+          <div class="px-4 py-3 border-b border-yellow-400 flex items-center space-x-3">
+            {#if profilePhoto}
+              <img src={profilePhoto} alt="Profile" class="w-10 h-10 rounded-full object-cover" />
+            {:else}
+              <span class="bg-yellow-400 text-black font-bold rounded-full w-10 h-10 flex items-center justify-center text-xl">
+                {firstLetter}
+              </span>
+            {/if}
+            <div>
+              <p class="font-bold">{userName}</p>
+              <p class="text-sm text-black-400">{auth.currentUser?.email}</p>
             </div>
           </div>
 
-          <!-- Profile photo upload -->
-          <label for="photo-upload" class="block cursor-pointer px-4 py-2 hover:bg-yellow-300 hover:text-black text-sm" title="Change profile photo">
+          <!-- Upload -->
+          <label for="photo-upload" class="block px-4 py-2 cursor-pointer hover:bg-gray-200 hover:text-black text-sm">
             Change Profile Photo
           </label>
           <input id="photo-upload" type="file" accept="image/*" class="hidden" on:change={onPhotoSelected} />
 
-          <!-- Links -->
-          <a href="#" class="block px-4 py-2 hover:bg-yellow-300 hover:text-black text-sm">Favourites</a>
-          <a href="#" class="block px-4 py-2 hover:bg-yellow-300 hover:text-black text-sm">Settings</a>
-          <a href="#" class="block px-4 py-2 hover:bg-yellow-300 hover:text-black text-sm">Help</a>
+          <!-- Menu links -->
+          <ul class="py-2 text-sm">
+            <li><a href="#" class="block px-4 py-2 hover:bg-gray-200 hover:text-black">Favourites</a></li>
+            <li><a href="#" class="block px-4 py-2 hover:bg-gray-200 hover:text-black">Settings</a></li>
+            
+          </ul>
 
           <!-- Logout -->
-          <button on:click={handleLogout} class="w-full text-left px-4 py-2 hover:bg-yellow-300 hover:text-black rounded-b-md text-sm">
-            Logout
-          </button>
+          <div class="px-4 py-3">
+            <button
+              on:click={handleLogout}
+              class="w-full py-2 bg-red-500 hover:bg-red-600 text-white rounded-md font-semibold"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       {/if}
     </div>
   </div>
 </nav>
 
-<!-- Background Section -->
-<div class="flex items-center justify-center min-h-screen bg-cover bg-center" style="background-image: url('https://wallpapercave.com/wp/wp4058052.png');">
+<!-- Dashboard -->
+<div class="pt-20 px-6 min-h-screen bg-gray-100">
+  <!-- Search + Filter -->
+<div class="flex justify-between items-center mb-6">
+  <!-- Search -->
+  <input
+    type="text"
+    placeholder="Search Pokémon..."
+    bind:value={searchTerm}
+    class="w-full md:w-1/3 px-4 py-2 border rounded-md"
+  />
+
+  <!-- Filter Dropdown -->
+  <div class="ml-4 w-full md:w-1/3">
+    <select
+      bind:value={selectedType}
+      class="w-full px-4 py-2 border rounded-md text-gray-700"
+    >
+      <option value={null} disabled selected>Filter by type</option>
+      {#each pokemonTypes as type}
+        <option value={type} class="capitalize">{type}</option>
+      {/each}
+    </select>
+  </div>
+</div>
+
+
   {#if loading}
-    <div class="mt-24 text-white text-sm bg-black/50 px-3 py-1 rounded">Loading profile…</div>
+    <p>Loading Pokémon...</p>
+  {:else if error}
+    <p class="text-red-500">{error}</p>
+  {:else}
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+      {#each filteredPokemons as pokemon}
+        <div class="bg-white p-4 rounded-lg shadow hover:shadow-lg relative">
+          <div on:click={() => openPokemonDetail(pokemon)} class="cursor-pointer">
+            <img src={pokemon.sprites.front_default} alt={pokemon.name} class="mx-auto w-20 h-20" />
+            <h2 class="text-center font-semibold capitalize">{pokemon.name}</h2>
+            <p class="text-center text-sm text-gray-500">#{pokemon.id}</p>
+            <div class="flex justify-center space-x-2 mt-2">
+              {#each pokemon.types as t}
+                <span class="px-2 py-1 text-xs rounded bg-yellow-200">{t.type.name}</span>
+              {/each}
+            </div>
+          </div>
+          <!-- Heart Button -->
+          <button
+            class="absolute bottom-2 right-2 text-xl"
+            on:click={() => toggleFavorite(pokemon.id)}
+          >
+            <span class={favorites.includes(pokemon.id) ? "text-red-500" : "text-gray-400"}>♥</span>
+          </button>
+        </div>
+      {/each}
+    </div>
   {/if}
 </div>
+
+<!-- Detail Modal -->
+{#if selectedPokemon}
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-lg max-w-md w-full relative">
+      <button class="absolute top-2 right-2 text-gray-600" on:click={closePokemonDetail}>✖</button>
+      <img src={selectedPokemon.sprites.front_default} alt={selectedPokemon.name} class="mx-auto w-24 h-24" />
+      <h2 class="text-center text-xl font-bold capitalize">{selectedPokemon.name}</h2>
+      <p class="text-center text-gray-500">ID: {selectedPokemon.id}</p>
+
+      <h3 class="mt-4 font-semibold">Types</h3>
+      <div class="flex space-x-2">
+        {#each selectedPokemon.types as t}
+          <span class="px-2 py-1 text-xs rounded bg-yellow-200">{t.type.name}</span>
+        {/each}
+      </div>
+
+      <h3 class="mt-4 font-semibold">Abilities</h3>
+      <ul class="list-disc list-inside">
+        {#each selectedPokemon.abilities as a}
+          <li>{a.ability.name}</li>
+        {/each}
+      </ul>
+
+      <h3 class="mt-4 font-semibold">Stats</h3>
+      <ul class="list-disc list-inside mb-10">
+        {#each selectedPokemon.stats as s}
+          <li>{s.stat.name}: {s.base_stat}</li>
+        {/each}
+      </ul>
+
+      <!-- Heart Button (bottom-right inside modal) -->
+      <button
+        class="absolute bottom-4 right-4 text-2xl"
+        on:click={() => toggleFavorite(selectedPokemon.id)}
+      >
+        <span class={favorites.includes(selectedPokemon.id) ? "text-red-500" : "text-gray-400"}>♥</span>
+      </button>
+    </div>
+  </div>
+{/if}
+
