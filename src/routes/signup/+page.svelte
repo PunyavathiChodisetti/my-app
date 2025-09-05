@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { auth, googleProvider } from "$lib/firebase";
   import { createUserWithEmailAndPassword, signInWithPopup } from "firebase/auth";
   import { goto } from "$app/navigation";
@@ -8,10 +9,16 @@
   let username = "";
   let errorMessage = "";
 
+  let isClient = false;
+
+  onMount(() => {
+    isClient = true;
+  })
+
   // Email + Password Signup
   async function handleSignup(e: Event) {
     e.preventDefault(); // prevent full reload
-    errorMessage = "";
+    if(!isClient) return;
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       console.log("Signed up:", userCredential.user);
@@ -24,7 +31,7 @@
 
   // Google Signup
   async function handleGoogleSignup() {
-    errorMessage = "";
+    if(!isClient) return;
     try {
       const result = await signInWithPopup(auth, googleProvider);
       console.log("Google signup:", result.user);

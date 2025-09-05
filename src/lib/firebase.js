@@ -1,6 +1,6 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // 🔴 keep your own config values here
@@ -16,5 +16,6 @@ const firebaseConfig = {
 // Avoid duplicate app during HMR
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const auth = typeof window !== "undefined" ? getAuth(app) : null;
+export const db = typeof window !== "undefined" ? getFirestore(app) : null;
+export const googleProvider=new GoogleAuthProvider();

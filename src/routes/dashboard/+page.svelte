@@ -1,6 +1,6 @@
 <script lang="ts">
   import { auth, db } from "$lib/firebase";
-  import { signOut, updateProfile } from "firebase/auth";
+  import { signOut, updateProfile, onAuthStateChanged } from "firebase/auth";
   import { doc, getDoc, setDoc } from "firebase/firestore";
   import { goto } from "$app/navigation";
   import { onMount, onDestroy } from "svelte";
@@ -44,12 +44,24 @@ const pokemonTypes = [
   }
 
   onMount(() => {
-    const user = auth.currentUser;
-    if (user) loadUserProfile(user);
+  if (typeof window !== "undefined") {
+    // Listen for Firebase login state
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loadUserProfile(user);
+      }
+    });
 
     document.addEventListener("click", handleClickOutside);
     fetchPokemons();
-  });
+
+    // cleanup on destroy
+    return () => {
+      unsubscribe();
+      document.removeEventListener("click", handleClickOutside);
+    };
+  }
+});
 
   onDestroy(() => {
     document.removeEventListener("click", handleClickOutside);
