@@ -2,8 +2,11 @@
   import { auth, db } from "$lib/firebase";
   import { signOut, updateProfile, onAuthStateChanged } from "firebase/auth";
   import { doc, getDoc, setDoc } from "firebase/firestore";
-  import { goto } from "$app/navigation";
+  import { beforeNavigate, goto } from "$app/navigation";
   import { onMount, onDestroy } from "svelte";
+
+  // ✅ Shared stores
+  import { pokemons, favorites } from "$lib/stores/pokemon";
 
   // --- User/Profile state ---
   let userName = "User";
@@ -11,24 +14,37 @@
   let profilePhoto: string | null = null;
 
   // --- Pokémon state ---
-  let pokemons: any[] = [];
   let searchTerm = "";
   let selectedType: string | null = null;
-const pokemonTypes = [
-  "normal", "fire", "water", "electric", "grass", "ice",
-  "fighting", "poison", "ground", "flying", "psychic",
-  "bug", "rock", "ghost", "dragon", "dark", "steel", "fairy"
-];
+  const pokemonTypes = [
+    "normal","fire","water","electric","grass","ice","fighting","poison","ground",
+    "flying","psychic","bug","rock","ghost","dragon","dark","steel","fairy"
+  ];
   let loading = true;
   let error: string | null = null;
   let selectedPokemon: any = null;
-  let favorites: number[] = []; // store Pokémon IDs
+
+  // Intercept browser back navigation
+  beforeNavigate((nav) => {
+    if (nav.type !== "popstate") return;
+    if (selectedPokemon) {
+      closePokemonDetail();
+      nav.cancel();
+    } else if (searchTerm.trim() !== "") {
+      searchTerm = "";
+      nav.cancel();
+    } else if (selectedType) {
+      selectedType = null;
+      nav.cancel();
+    } else {
+      nav.cancel();
+    }
+  });
 
   // --- Navbar/Profile setup ---
   async function loadUserProfile(user: any) {
     if (!user) return;
     userName = user.displayName || user.email?.split("@")[0] || "User";
-
     try {
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
@@ -44,24 +60,18 @@ const pokemonTypes = [
   }
 
   onMount(() => {
-  if (typeof window !== "undefined") {
-    // Listen for Firebase login state
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        loadUserProfile(user);
-      }
-    });
-
-    document.addEventListener("click", handleClickOutside);
-    fetchPokemons();
-
-    // cleanup on destroy
-    return () => {
-      unsubscribe();
-      document.removeEventListener("click", handleClickOutside);
-    };
-  }
-});
+    if (typeof window !== "undefined") {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (user) loadUserProfile(user);
+      });
+      document.addEventListener("click", handleClickOutside);
+      fetchPokemons();
+      return () => {
+        unsubscribe();
+        document.removeEventListener("click", handleClickOutside);
+      };
+    }
+  });
 
   onDestroy(() => {
     document.removeEventListener("click", handleClickOutside);
@@ -83,12 +93,9 @@ const pokemonTypes = [
   function handleClickOutside(event: MouseEvent) {
     const dropdown = document.getElementById("profile-dropdown");
     const button = document.getElementById("profile-button");
-    if (
-      dropdown &&
-      button &&
-      !dropdown.contains(event.target as Node) &&
-      !button.contains(event.target as Node)
-    ) {
+    if (dropdown && button &&
+        !dropdown.contains(event.target as Node) &&
+        !button.contains(event.target as Node)) {
       dropdownOpen = false;
     }
   }
@@ -104,7 +111,6 @@ const pokemonTypes = [
       const reader = new FileReader();
       reader.onload = async (e) => {
         profilePhoto = e.target?.result as string;
-
         const user = auth.currentUser;
         if (user) {
           try {
@@ -125,17 +131,17 @@ const pokemonTypes = [
     loading = true;
     error = null;
     try {
-      const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000");
+      console.log("Fetching Pokémon…");
+      const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000"); // ✅ smaller batch
       if (!res.ok) throw new Error("Failed to fetch Pokémon list");
       const data = await res.json();
-
       const detailed = await Promise.all(
         data.results.map(async (p: any) => {
           const r = await fetch(p.url);
           return await r.json();
         })
       );
-      pokemons = detailed;
+      pokemons.set(detailed);
     } catch (err: any) {
       error = err.message;
     } finally {
@@ -144,30 +150,25 @@ const pokemonTypes = [
   }
 
   // --- Filter by search ---
-  $: filteredPokemons = pokemons.filter((p) => {
-  const matchesName = p.name.toLowerCase().includes(searchTerm.toLowerCase());
-  const matchesType = selectedType
-    ? p.types.some((t: any) => t.type.name === selectedType)
-    : true;
-  return matchesName && matchesType;
-});
-
+  $: filteredPokemons = $pokemons.filter((p) => {
+    const matchesName = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesType = selectedType
+      ? p.types.some((t: any) => t.type.name === selectedType)
+      : true;
+    return matchesName && matchesType;
+  });
 
   // --- Open detail modal ---
-  function openPokemonDetail(p: any) {
-    selectedPokemon = p;
-  }
-  function closePokemonDetail() {
-    selectedPokemon = null;
-  }
+  function openPokemonDetail(p: any) { selectedPokemon = p; }
+  function closePokemonDetail() { selectedPokemon = null; }
 
   // --- Toggle favorites ---
   function toggleFavorite(pokemonId: number) {
-    if (favorites.includes(pokemonId)) {
-      favorites = favorites.filter((id) => id !== pokemonId);
-    } else {
-      favorites = [...favorites, pokemonId];
-    }
+    favorites.update((favs) =>
+      favs.includes(pokemonId)
+        ? favs.filter((id) => id !== pokemonId)
+        : [...favs, pokemonId]
+    );
   }
 </script>
 
@@ -176,10 +177,10 @@ const pokemonTypes = [
   <h1 class="font-bold text-xl">POKEDEX</h1>
 
   <div class="flex items-center space-x-4">
-    <a href="#" class="hover:text-yellow-300">Pokemons</a>
+    <a href="/dashboard" class="hover:text-yellow-300">Pokemons</a>
 
     <!-- Profile -->
-    <div class="relative flex items-center space-x-2 cursor-pointer select-none">
+    <div class="relative flex items-center space-x-2">
       <button
         id="profile-button"
         class="flex items-center space-x-2 hover:text-yellow-300"
@@ -198,8 +199,7 @@ const pokemonTypes = [
       {#if dropdownOpen}
         <div
           id="profile-dropdown"
-          class="absolute right-0 mt-2 w-64 bg-white text-black rounded-md shadow-lg z-50"
-          style="top: 100%;"
+          class="absolute top-full right-0 mt-2 w-64 bg-white text-black rounded-md shadow-lg z-[1000]"
         >
           <!-- User info -->
           <div class="px-4 py-3 border-b border-yellow-400 flex items-center space-x-3">
@@ -212,21 +212,26 @@ const pokemonTypes = [
             {/if}
             <div>
               <p class="font-bold">{userName}</p>
-              <p class="text-sm text-black-400">{auth.currentUser?.email}</p>
+              <button
+                type="button"
+                class="text-sm text-gray-500 hover:text-blue-800"
+                on:click={() => navigator.clipboard.writeText(auth.currentUser?.email || "")}
+              >
+                {auth.currentUser?.email}
+              </button>
             </div>
           </div>
 
           <!-- Upload -->
-          <label for="photo-upload" class="block px-4 py-2 cursor-pointer hover:bg-gray-200 hover:text-black text-sm">
+          <label for="photo-upload" class="block px-4 py-2 cursor-pointer hover:bg-gray-200 text-sm">
             Change Profile Photo
           </label>
           <input id="photo-upload" type="file" accept="image/*" class="hidden" on:change={onPhotoSelected} />
 
           <!-- Menu links -->
           <ul class="py-2 text-sm">
-            <li><a href="#" class="block px-4 py-2 hover:bg-gray-200 hover:text-black">Favourites</a></li>
-            <li><a href="#" class="block px-4 py-2 hover:bg-gray-200 hover:text-black">Settings</a></li>
-            
+            <li><a href="/favourites" class="block px-4 py-2 hover:bg-gray-200">Favourites</a></li>
+            <li><a href="/settings" class="block px-4 py-2 hover:bg-gray-200">Settings</a></li>
           </ul>
 
           <!-- Logout -->
@@ -247,29 +252,26 @@ const pokemonTypes = [
 <!-- Dashboard -->
 <div class="pt-20 px-6 min-h-screen bg-gray-100">
   <!-- Search + Filter -->
-<div class="flex justify-between items-center mb-6">
-  <!-- Search -->
-  <input
-    type="text"
-    placeholder="Search Pokémon..."
-    bind:value={searchTerm}
-    class="w-full md:w-1/3 px-4 py-2 border rounded-md"
-  />
+  <div class="flex justify-between items-center mb-6">
+    <input
+      type="text"
+      placeholder="Search Pokémon..."
+      bind:value={searchTerm}
+      class="w-full md:w-1/3 px-4 py-2 border rounded-md"
+    />
 
-  <!-- Filter Dropdown -->
-  <div class="ml-4 w-full md:w-1/3">
-    <select
-      bind:value={selectedType}
-      class="w-full px-4 py-2 border rounded-md text-gray-700"
-    >
-      <option value={null} disabled selected>Filter by type</option>
-      {#each pokemonTypes as type}
-        <option value={type} class="capitalize">{type}</option>
-      {/each}
-    </select>
+    <div class="ml-4 w-full md:w-1/3">
+      <select
+        bind:value={selectedType}
+        class="w-full px-4 py-2 border rounded-md text-gray-700"
+      >
+        <option value={null} disabled selected>Filter by type</option>
+        {#each pokemonTypes as type}
+          <option value={type} class="capitalize">{type}</option>
+        {/each}
+      </select>
+    </div>
   </div>
-</div>
-
 
   {#if loading}
     <p>Loading Pokémon...</p>
@@ -277,9 +279,13 @@ const pokemonTypes = [
     <p class="text-red-500">{error}</p>
   {:else}
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-      {#each filteredPokemons as pokemon}
+      {#each filteredPokemons as pokemon (pokemon.id)}
         <div class="bg-white p-4 rounded-lg shadow hover:shadow-lg relative">
-          <div on:click={() => openPokemonDetail(pokemon)} class="cursor-pointer">
+          <button
+            type="button"
+            on:click={() => openPokemonDetail(pokemon)}
+            class="w-full text-left cursor-pointer"
+          >
             <img src={pokemon.sprites.front_default} alt={pokemon.name} class="mx-auto w-20 h-20" />
             <h2 class="text-center font-semibold capitalize">{pokemon.name}</h2>
             <p class="text-center text-sm text-gray-500">#{pokemon.id}</p>
@@ -288,13 +294,12 @@ const pokemonTypes = [
                 <span class="px-2 py-1 text-xs rounded bg-yellow-200">{t.type.name}</span>
               {/each}
             </div>
-          </div>
-          <!-- Heart Button -->
+          </button>
           <button
             class="absolute bottom-2 right-2 text-xl"
             on:click={() => toggleFavorite(pokemon.id)}
           >
-            <span class={favorites.includes(pokemon.id) ? "text-red-500" : "text-gray-400"}>♥</span>
+            <span class={$favorites.includes(pokemon.id) ? "text-red-500" : "text-gray-400"}>♥</span>
           </button>
         </div>
       {/each}
@@ -332,14 +337,12 @@ const pokemonTypes = [
         {/each}
       </ul>
 
-      <!-- Heart Button (bottom-right inside modal) -->
       <button
         class="absolute bottom-4 right-4 text-2xl"
         on:click={() => toggleFavorite(selectedPokemon.id)}
       >
-        <span class={favorites.includes(selectedPokemon.id) ? "text-red-500" : "text-gray-400"}>♥</span>
+        <span class={$favorites.includes(selectedPokemon.id) ? "text-red-500" : "text-gray-400"}>♥</span>
       </button>
     </div>
   </div>
 {/if}
-
