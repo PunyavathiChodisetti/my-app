@@ -1,20 +1,25 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { onMount } from "svelte";
-  import { goto } from "$app/navigation";
-
-  // This assumes `favorites` and `pokemons` exist globally (in a store).
-  // So we need to move them into a Svelte store.
   import { favorites, pokemons } from "$lib/stores/pokemon";
+  import { beforeNavigate } from "$app/navigation";
+  import PokemonDetailModal from "$lib/components/PokemonDetailModal.svelte";
+  import PokemonHeartButton from "$lib/components/PokemonHeartButton.svelte";
 
   let favPokemons: any[] = [];
+  let selectedPokemon: any = null;
 
-  // Load only favorites
+  beforeNavigate((nav) => {
+    if (nav.type === "popstate" && selectedPokemon) {
+      // Close modal instead of navigating back
+      closePokemonDetail();
+      nav.cancel();
+    }
+  });
+
+  // Filter only favorite Pokémon
   $: favPokemons = $pokemons.filter((p) => $favorites.includes(p.id));
 
-  function openPokemonDetail(p: any) {
-    goto(`/pokemon/${p.id}`); // optional detail page if you add one
-  }
+  function openPokemonDetail(p: any) { selectedPokemon = p; }
+  function closePokemonDetail() { selectedPokemon = null; }
 </script>
 
 <div class="pt-20 px-6 min-h-screen bg-gray-100">
@@ -26,7 +31,12 @@
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
       {#each favPokemons as pokemon}
         <div class="bg-white p-4 rounded-lg shadow hover:shadow-lg relative">
-          <div on:click={() => openPokemonDetail(pokemon)} class="cursor-pointer">
+          <!-- open detail modal -->
+          <button
+            type="button"
+            class="cursor-pointer w-full text-left"
+            on:click={() => openPokemonDetail(pokemon)}
+          >
             <img src={pokemon.sprites.front_default} alt={pokemon.name} class="mx-auto w-20 h-20" />
             <h2 class="text-center font-semibold capitalize">{pokemon.name}</h2>
             <p class="text-center text-sm text-gray-500">#{pokemon.id}</p>
@@ -35,16 +45,13 @@
                 <span class="px-2 py-1 text-xs rounded bg-yellow-200">{t.type.name}</span>
               {/each}
             </div>
-          </div>
-          <!-- Heart Button -->
-          <button
-            class="absolute bottom-2 right-2 text-xl"
-            on:click={() => favorites.update(f => f.filter(id => id !== pokemon.id))}
-          >
-            <span class="text-red-500">♥</span>
           </button>
+          <!--Heart Button -->
+          <PokemonHeartButton pokemonId={pokemon.id} />
         </div>
       {/each}
     </div>
   {/if}
 </div>
+<!-- shared modal -->
+<PokemonDetailModal pokemon={selectedPokemon} onClose={closePokemonDetail} />
