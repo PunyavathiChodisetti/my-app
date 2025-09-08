@@ -92,17 +92,99 @@
       reader.readAsDataURL(file);
     }
   }
-
+  //fetch pokemons
   async function fetchPokemons() {
-    loading = true; error = null;
+    loading = true;
+    error = null;
+
     try {
-      const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000");
-      if (!res.ok) throw new Error("Failed to fetch Pokémon list");
-      const data = await res.json();
-      const detailed = await Promise.all(data.results.map(async (p: any) => { const r = await fetch(p.url); return await r.json(); }));
-      pokemons.set(detailed);
-    } catch (err: any) { error = err.message; }
-    finally { loading = false; }
+      const query = `
+        query GetPokemons($limit: Int!, $offset: Int!) {
+          pokemon_v2_pokemon(limit: $limit, offset: $offset) {
+            id
+            name
+            height
+            weight
+            pokemon_v2_pokemontypes {
+              pokemon_v2_type {
+                name
+              }
+            }
+            pokemon_v2_pokemonabilities {
+              pokemon_v2_ability {
+                name
+              }
+            }
+            pokemon_v2_pokemonstats {
+              base_stat
+              pokemon_v2_stat {
+                name
+              }
+            }
+            pokemon_v2_pokemonsprites {
+              sprites
+            }
+          }
+        }
+      `;
+
+      const res = await fetch("https://beta.pokeapi.co/graphql/v1beta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query,
+          variables: { limit: 500, offset: 0 }, // adjust as needed
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!result.data || !result.data.pokemon_v2_pokemon) {
+        console.error("GraphQL error:", result.errors);
+        throw new Error("No data returned from GraphQL");
+      }
+      const mapped = result.data.pokemon_v2_pokemon.map((p: any) => {
+        let spriteObj = {};
+        
+        // check if sprites array has at least one entry
+        if (p.pokemon_v2_pokemonsprites.length > 0 && p.pokemon_v2_pokemonsprites[0].sprites) {
+          try {
+            spriteObj = JSON.parse(p.pokemon_v2_pokemonsprites[0].sprites);
+          } catch {
+            spriteObj = {};
+          }
+        }
+
+        // fallback to official artwork URL if front_default is missing
+        const frontImage =
+          spriteObj?.front_default ||
+          `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p.id}.png`;
+
+        return {
+          id: p.id,
+          name: p.name,
+          sprites: { front_default: frontImage },
+          types: p.pokemon_v2_pokemontypes.map((t: any) => ({
+            type: { name: t.pokemon_v2_type.name },
+          })),
+          abilities: p.pokemon_v2_pokemonabilities.map((a: any) => ({
+            ability: { name: a.pokemon_v2_ability.name },
+          })),
+          stats: p.pokemon_v2_pokemonstats.map((s: any) => ({
+            base_stat: s.base_stat,
+            stat: { name: s.pokemon_v2_stat.name },
+          })),
+          height: p.height,
+          weight: p.weight,
+        };
+      });
+      pokemons.set(mapped);
+    } catch (err: any) {
+      console.error("GraphQL fetch error:", err);
+      error = err.message;
+    } finally {
+      loading = false;
+    }
   }
 
   $: filteredPokemons = $pokemons.filter((p) => {

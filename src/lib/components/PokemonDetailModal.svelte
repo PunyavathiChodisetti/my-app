@@ -1,8 +1,10 @@
 <script lang="ts">
   import { favorites } from "$lib/stores/pokemon";
+  import PokemonHeartButton from "$lib/components/PokemonHeartButton.svelte";
 
   export let pokemon: any = null;   // passed from parent
   export let onClose: () => void;   // close function from parent
+  
 </script>
 
 {#if pokemon}
@@ -36,12 +38,9 @@
       </ul>
 
       <!-- Heart Button -->
-      <button
-        class="absolute bottom-4 right-4 text-2xl"
-        on:click={() => favorites.update(f => f.filter(id => id !== pokemon.id))}
-      >
-        <span class="text-red-500">♥</span>
-      </button>
+      {#if pokemon}
+        <PokemonHeartButton pokemonId={pokemon.id} class="absolute bottom-4 right-4 text-2xl" />
+      {/if}
     </div>
   </div>
 {/if}

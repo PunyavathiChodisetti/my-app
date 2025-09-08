@@ -8,20 +8,28 @@
   let selectedPokemon: any = null;
   let loading = true;
 
-  // Fetch pokemons if store is empty
-  onMount(async () => {
+  // ✅ Fetch pokemons if store is empty
+  async function loadPokemons() {
     if ($pokemons.length === 0) {
-      const res = await fetch("/api/pokemons.json"); // replace with your actual source
+      const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=500");
       const data = await res.json();
-      pokemons.set(data);
+
+      const details = await Promise.all(
+        data.results.map(async (p: any) => {
+          const r = await fetch(p.url);
+          return await r.json();
+        })
+      );
+
+      pokemons.set(details);
     }
-  });
+  }
+
+  onMount(loadPokemons);
 
   // ✅ Reactive update whenever pokemons or favorites change
-  $: if ($pokemons.length > 0 && $favorites) {
-    favPokemons = $pokemons.filter(p => $favorites.includes(p.id));
-    loading = false;
-  }
+  $: favPokemons = $pokemons.filter((p) => $favorites.includes(p.id));
+  $: loading = $pokemons.length === 0;
 
   function openPokemonDetail(p: any) { selectedPokemon = p; }
   function closePokemonDetail() { selectedPokemon = null; }
@@ -36,7 +44,7 @@
     <p class="text-gray-500">No favourites yet. Go back and ♥ some Pokémon!</p>
   {:else}
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-      {#each favPokemons as pokemon}
+      {#each favPokemons as pokemon (pokemon.id)}
         <div class="bg-white p-4 rounded-lg shadow hover:shadow-lg relative">
           <button
             type="button"
