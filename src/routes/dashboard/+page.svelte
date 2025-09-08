@@ -7,6 +7,7 @@
   import PokemonHeartButton from "$lib/components/PokemonHeartButton.svelte";
   import PokemonDetailModal from "$lib/components/PokemonDetailModal.svelte";
   import { pokemons, favorites } from "$lib/stores/pokemon";
+  import { GraphQLClient, gql } from "graphql-request";
 
   // --- User/Profile state ---
   let userName = "User";
@@ -93,61 +94,55 @@
     }
   }
   //fetch pokemons
-  async function fetchPokemons() {
+  // --- GraphQL client setup ---
+  const client = new GraphQLClient("https://beta.pokeapi.co/graphql/v1beta");
+
+  const GET_POKEMONS = gql`
+    query GetPokemons($limit: Int!, $offset: Int!) {
+      pokemon_v2_pokemon(limit: $limit, offset: $offset) {
+        id
+        name
+        height
+        weight
+        pokemon_v2_pokemontypes {
+          pokemon_v2_type {
+            name
+          }
+        }
+        pokemon_v2_pokemonabilities {
+          pokemon_v2_ability {
+            name
+          }
+        }
+        pokemon_v2_pokemonstats {
+          base_stat
+          pokemon_v2_stat {
+            name
+          }
+        }
+        pokemon_v2_pokemonsprites {
+          sprites
+        }
+      }
+    }
+  `;
+
+  // --- Fetch Pokémons ---
+  async function fetchPokemons(limit = 200, offset = 0) {
     loading = true;
     error = null;
 
     try {
-      const query = `
-        query GetPokemons($limit: Int!, $offset: Int!) {
-          pokemon_v2_pokemon(limit: $limit, offset: $offset) {
-            id
-            name
-            height
-            weight
-            pokemon_v2_pokemontypes {
-              pokemon_v2_type {
-                name
-              }
-            }
-            pokemon_v2_pokemonabilities {
-              pokemon_v2_ability {
-                name
-              }
-            }
-            pokemon_v2_pokemonstats {
-              base_stat
-              pokemon_v2_stat {
-                name
-              }
-            }
-            pokemon_v2_pokemonsprites {
-              sprites
-            }
-          }
-        }
-      `;
+      const result = await client.request(GET_POKEMONS, { limit, offset });
 
-      const res = await fetch("https://beta.pokeapi.co/graphql/v1beta", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query,
-          variables: { limit: 500, offset: 0 }, // adjust as needed
-        }),
-      });
-
-      const result = await res.json();
-
-      if (!result.data || !result.data.pokemon_v2_pokemon) {
-        console.error("GraphQL error:", result.errors);
+      if (!result?.pokemon_v2_pokemon) {
         throw new Error("No data returned from GraphQL");
       }
-      const mapped = result.data.pokemon_v2_pokemon.map((p: any) => {
-        let spriteObj = {};
-        
-        // check if sprites array has at least one entry
-        if (p.pokemon_v2_pokemonsprites.length > 0 && p.pokemon_v2_pokemonsprites[0].sprites) {
+
+      const mapped = result.pokemon_v2_pokemon.map((p: any) => {
+        let spriteObj: any = {};
+
+        if (p.pokemon_v2_pokemonsprites?.length > 0 && p.pokemon_v2_pokemonsprites[0].sprites) {
           try {
             spriteObj = JSON.parse(p.pokemon_v2_pokemonsprites[0].sprites);
           } catch {
@@ -155,7 +150,6 @@
           }
         }
 
-        // fallback to official artwork URL if front_default is missing
         const frontImage =
           spriteObj?.front_default ||
           `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p.id}.png`;
@@ -178,6 +172,7 @@
           weight: p.weight,
         };
       });
+
       pokemons.set(mapped);
     } catch (err: any) {
       console.error("GraphQL fetch error:", err);
