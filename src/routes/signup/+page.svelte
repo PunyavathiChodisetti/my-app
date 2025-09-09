@@ -1,49 +1,52 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { auth, googleProvider } from "$lib/firebase";
-  import { createUserWithEmailAndPassword, signInWithPopup } from "firebase/auth";
+  import { createUserWithEmailAndPassword, signInWithPopup, updateProfile } from "firebase/auth";
   import { goto } from "$app/navigation";
 
-  let email = "";
-  let password = "";
-  let username = "";
-  let errorMessage = "";
+  // --- State runes ---
+  let email = $state("");
+  let password = $state("");
+  let username = $state("");
+  let errorMessage = $state("");
 
-  let isClient = false;
+  // Derived UI state
+  let hasError = $derived(errorMessage !== "");
 
-  onMount(() => {
-    isClient = true;
-  })
+  // Side-effect: log errors only when they change
+  $effect(() => {
+    if (errorMessage) {
+      console.error("Signup error:", errorMessage);
+    }
+  });
 
-  // Email + Password Signup
+  // --- Handlers ---
   async function handleSignup(e: Event) {
-    e.preventDefault(); // prevent full reload
-    if(!isClient) return;
+    e.preventDefault();
+    errorMessage = "";
+
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(userCredential.user, { displayName: username });
       console.log("Signed up:", userCredential.user);
-      goto("/login"); // redirect after signup
+      goto("/login");
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("Signup error:", error);
     }
   }
 
-  // Google Signup
   async function handleGoogleSignup() {
-    if(!isClient) return;
+    errorMessage = "";
     try {
       const result = await signInWithPopup(auth, googleProvider);
       console.log("Google signup:", result.user);
       goto("/dashboard");
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("Google signup error:", error);
     }
   }
 </script>
 
-
+<!-- Navbar -->
 <nav class="flex justify-between items-center px-6 py-3 absolute top-0 left-0 w-full bg-black bg-opacity-40 text-white">
   <h1 class="font-bold text-xl">POKEDEX</h1>
   <div class="space-x-6">
@@ -51,13 +54,17 @@
     <a href="/login" class="hover:text-yellow-300">Login</a>
   </div>
 </nav>
-<!-- Background Wrapper (reuse your login background styling) -->
-<div class="flex items-center justify-center min-h-screen bg-cover bg-center" style="background-image: url('https://wallpapercave.com/uwp/uwp4775786.jpeg')">
+
+<!-- Background Wrapper -->
+<div
+  class="flex items-center justify-center min-h-screen bg-cover bg-center"
+  style="background-image: url('https://wallpapercave.com/uwp/uwp4775786.jpeg')"
+>
   <div class="bg-white/80 rounded-xl p-8 shadow-lg w-full max-w-md">
     <h1 class="text-2xl font-bold text-center mb-6">Create an Account</h1>
 
     <!-- Signup Form -->
-    <form class="space-y-4" on:submit={handleSignup}>
+    <form class="space-y-4" onsubmit={handleSignup}>
       <input
         type="text"
         placeholder="Username"
@@ -90,14 +97,15 @@
 
     <!-- Google Signup Button -->
     <button
-      on:click={handleGoogleSignup}
+      type="button"
+      onclick={handleGoogleSignup}
       class="mt-4 w-full bg-red-500 hover:bg-red-600 text-white border rounded-lg py-3 font-medium"
     >
       Sign Up with Google
     </button>
 
     <!-- Error Message -->
-    {#if errorMessage}
+    {#if hasError}
       <p class="mt-4 text-red-500 text-sm text-center">{errorMessage}</p>
     {/if}
   </div>

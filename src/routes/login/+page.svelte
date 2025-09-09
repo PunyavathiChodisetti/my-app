@@ -3,12 +3,24 @@
   import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail } from "firebase/auth";
   import { goto } from "$app/navigation";
 
-  let email = "";
-  let password = "";
-  let errorMessage = "";
-  let successMessage = "";
+  // --- State runes ---
+  let email = $state("");
+  let password = $state("");
+  let errorMessage = $state("");
+  let successMessage = $state("");
 
-  // Email + Password Login
+  // Derived values for UI
+  let hasError = $derived(errorMessage !== "");
+  let hasSuccess = $derived(successMessage !== "");
+
+  // Side-effect: log whenever error changes
+  $effect(() => {
+    if (errorMessage) {
+      console.error("Login error:", errorMessage);
+    }
+  });
+
+  // --- Auth Handlers ---
   async function handleLogin(e: Event) {
     e.preventDefault();
     errorMessage = "";
@@ -17,13 +29,11 @@
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       console.log("Logged in:", userCredential.user);
-      goto("/dashboard"); // redirect after login
+      goto("/dashboard");
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("Login error:", error);
     }
   }
-
   // Google Login
   async function handleGoogleLogin() {
     errorMessage = "";
@@ -32,13 +42,11 @@
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       console.log("Google Logged in:", result.user);
-      goto("/dashboard"); // redirect after Google login
+      goto("/dashboard");
     } catch (error: any) {
       errorMessage = error.message;
-      console.error("Google login error:", error);
     }
   }
-
   // Forgot Password
   async function handleForgotPassword() {
     errorMessage = "";
@@ -47,7 +55,6 @@
       errorMessage = "Please enter your email first";
       return;
     }
-
     try {
       await sendPasswordResetEmail(auth, email);
       successMessage = "Password reset email sent! Check your inbox.";
@@ -62,8 +69,6 @@
   <h1 class="font-bold text-xl">POKEDEX</h1>
   <div class="space-x-6">
     <a href="/" class="hover:text-yellow-300">Home</a>
-    <a href="#" class="hover:text-yellow-300">Pokemons</a>
-    <a href="#" class="hover:text-yellow-300">Favourites</a>
   </div>
 </nav>
 
@@ -85,7 +90,7 @@
     <h2 class="text-2xl font-bold text-gray-800 mb-6">Login</h2>
 
     <!-- Login Form -->
-    <form class="space-y-4" on:submit|preventDefault={handleLogin}>
+    <form class="space-y-4" onsubmit={handleLogin}>
       <input
         type="email"
         bind:value={email}
@@ -110,7 +115,7 @@
 
     <!-- Google Login -->
     <button
-      on:click={handleGoogleLogin}
+      onclick={handleGoogleLogin}
       class="w-full mt-4 bg-red-500 hover:bg-red-600 text-white rounded-lg py-3 font-medium"
     >
       Login with Google
@@ -118,17 +123,18 @@
 
     <!-- Forgot Password -->
     <button
-      on:click={handleForgotPassword}
+      type="button"
+      onclick={handleForgotPassword}
       class="mt-2 text-sm text-blue-600 hover:underline"
     >
       Forgot Password?
     </button>
 
     <!-- Error & Success Messages -->
-    {#if errorMessage}
+    {#if hasError}
       <p class="mt-4 text-red-500 text-sm">{errorMessage}</p>
     {/if}
-    {#if successMessage}
+    {#if hasSuccess}
       <p class="mt-4 text-green-500 text-sm">{successMessage}</p>
     {/if}
 

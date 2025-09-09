@@ -1,9 +1,12 @@
 <script lang="ts">
   import { favorites } from "$lib/stores/pokemon";
 
-  export let pokemonId: number;
+  // Props in runes
+  const { pokemonId } = $props<{ pokemonId: number }>();
 
-  // Toggle function for favourites
+  // --- Derived state ---
+  let isFavorite = $derived($favorites.includes(pokemonId));
+
   function toggleFavorite() {
     favorites.update((favs) =>
       favs.includes(pokemonId)
@@ -13,9 +16,6 @@
   }
 </script>
 
-<button
-  class="absolute bottom-2 right-2 text-xl"
-  on:click={toggleFavorite}
->
-  <span class={$favorites.includes(pokemonId) ? "text-red-500" : "text-gray-400"}>♥</span>
+<button class="absolute bottom-2 right-2 text-xl" onclick={toggleFavorite}>
+  <span class={isFavorite ? "text-red-500" : "text-gray-400"}>♥</span>
 </button>

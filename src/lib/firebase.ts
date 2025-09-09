@@ -3,7 +3,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// 🔴 keep your own config values here
+// keep your own config values here
 const firebaseConfig = {
   apiKey: "AIzaSyDkgiHlduRhNSLOq2TXmB8XwqeY7zBrptA",
   authDomain: "pokedex-a2bd7.firebaseapp.com",

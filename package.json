@@ -43,6 +43,7 @@
 	"dependencies": {
 		"firebase": "^12.2.1",
 		"graphql-request": "^7.2.0",
+		"lucide-svelte": "^0.542.0",
 		"svelte-spa-router": "^4.0.1"
 	}
 }

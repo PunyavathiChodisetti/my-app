@@ -1,38 +1,28 @@
 <script lang="ts">
-  import { favorites, pokemons } from "$lib/stores/pokemon";
-  import { onMount } from "svelte";
   import PokemonDetailModal from "$lib/components/PokemonDetailModal.svelte";
   import PokemonHeartButton from "$lib/components/PokemonHeartButton.svelte";
+  import { pokemons, favorites, fetchPokemons } from "$lib/stores/pokemon";
 
-  let favPokemons: any[] = [];
-  let selectedPokemon: any = null;
-  let loading = true;
+  let selectedPokemon = $state<any>(null);
 
-  // ✅ Fetch pokemons if store is empty
-  async function loadPokemons() {
+  // --- Derived state ---
+  let favPokemons = $derived($pokemons.filter((p) => $favorites.includes(p.id)));
+  let loading = $derived($pokemons.length === 0);
+
+  // --- Effects ---
+  $effect(async () => {
     if ($pokemons.length === 0) {
-      const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=500");
-      const data = await res.json();
-
-      const details = await Promise.all(
-        data.results.map(async (p: any) => {
-          const r = await fetch(p.url);
-          return await r.json();
-        })
-      );
-
-      pokemons.set(details);
+      await fetchPokemons();
     }
+  });
+
+  // --- UI helpers ---
+  function openPokemonDetail(p: any) {
+    selectedPokemon = p;
   }
-
-  onMount(loadPokemons);
-
-  // ✅ Reactive update whenever pokemons or favorites change
-  $: favPokemons = $pokemons.filter((p) => $favorites.includes(p.id));
-  $: loading = $pokemons.length === 0;
-
-  function openPokemonDetail(p: any) { selectedPokemon = p; }
-  function closePokemonDetail() { selectedPokemon = null; }
+  function closePokemonDetail() {
+    selectedPokemon = null;
+  }
 </script>
 
 <div class="pt-20 px-6 min-h-screen bg-gray-100">
